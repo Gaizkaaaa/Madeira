@@ -1,0 +1,9 @@
+- name: Descargar archivos de Visual C++
+      run: |
+        brew install sevenzip
+        curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+        7zz x vc_redist.x64.exe -o/tmp/vcredist
+        # Buscamos el archivo .cab dinámicamente y lo extraemos
+        CAB_FILE=$(find /tmp/vcredist -name "*.cab" | head -n 1)
+        echo "Archivo CAB encontrado en: $CAB_FILE"
+        7zz x "$CAB_FILE" -oapp/Madeira/x86_64-vcruntime
