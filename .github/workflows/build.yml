@@ -1,20 +1,22 @@
 name: Build Madeira IPA
 
 on:
-  workflow_dispatch: # Permite ejecutarlo manualmente
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
 
     steps:
-    - name: Descargar el código
+    - name: Descargar el código (incluyendo submódulos)
       uses: actions/checkout@v4
+      with:
+        submodules: recursive # Esto descarga FEX y Wine correctamente
 
     - name: Compilar la aplicación
       run: |
         xcodebuild clean build \
-          -project Madeira.xcodeproj \
+          -project app/Madeira.xcodeproj \
           -scheme Madeira \
           -configuration Release \
           -sdk iphoneos \
