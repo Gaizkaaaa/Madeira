@@ -17,11 +17,14 @@ jobs:
       run: |
         brew install sevenzip
         curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+        # 1. Extraer el instalador principal
         7zz x vc_redist.x64.exe -o/tmp/vcredist
-        # Buscar el archivo .cab en cualquier subdirectorio
-        CAB_FILE=$(find /tmp/vcredist -type f -name "*.cab" | head -n 1)
+        # 2. Extraer el contenedor interno que guarda realmente los archivos CAB
+        7zz x /tmp/vcredist/AttachedContainer -o/tmp/vcredist_container
+        # 3. Buscar el archivo CAB en el contenedor y extraer las DLL
+        CAB_FILE=$(find /tmp/vcredist_container -type f -name "*.cab" | head -n 1)
         if [ -z "$CAB_FILE" ]; then
-          echo "Error: No se encontró ningún archivo .cab en el instalador"
+          echo "Error: No se encontró ningún archivo .cab en el contenedor"
           exit 1
         fi
         echo "Archivo CAB encontrado en: $CAB_FILE"
