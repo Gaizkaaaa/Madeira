@@ -1,0 +1,36 @@
+name: Build Madeira IPA
+
+on:
+  workflow_dispatch: # Permite ejecutarlo manualmente
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Descargar el código
+      uses: actions/checkout@v4
+
+    - name: Compilar la aplicación
+      run: |
+        xcodebuild clean build \
+          -project Madeira.xcodeproj \
+          -scheme Madeira \
+          -configuration Release \
+          -sdk iphoneos \
+          CODE_SIGNING_ALLOWED=NO \
+          DSTROOT=$PWD/build \
+          OBJROOT=$PWD/build \
+          SYMROOT=$PWD/build
+
+    - name: Empaquetar en formato IPA
+      run: |
+        mkdir -p Payload
+        mv build/Release-iphoneos/*.app Payload/
+        zip -r Madeira.ipa Payload
+
+    - name: Subir el archivo final
+      uses: actions/upload-artifact@v4
+      with:
+        name: Madeira-App
+        path: Madeira.ipa
