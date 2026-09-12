@@ -1,55 +1,9 @@
-name: Build Madeira IPA
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-    - name: Descargar el código (incluyendo submódulos)
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Descargar archivos de Visual C++
+- name: Descargar archivos de Visual C++
       run: |
         brew install sevenzip
         curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
         7zz x vc_redist.x64.exe -o/tmp/vcredist
-        7zz x /tmp/vcredist/.rsrc/1033/CABINET/*.cab -oapp/Madeira/x86_64-vcruntime
-
-    - name: Compilar dependencias nativas
-      run: |
-        # Entrar en cada subcarpeta de 'build' y ejecutar build.sh si existe
-        for dir in build/*/; do
-          if [ -f "${dir}build.sh" ]; then
-            echo "Compilando dependencias en $dir..."
-            (cd "$dir" && bash build.sh)
-          fi
-        done
-
-    - name: Compilar la aplicación de iOS
-      run: |
-        xcodebuild build \
-          -project app/Madeira.xcodeproj \
-          -scheme Madeira \
-          -configuration Release \
-          -sdk iphoneos \
-          CODE_SIGNING_ALLOWED=NO \
-          DSTROOT=$PWD/build \
-          OBJROOT=$PWD/build \
-          SYMROOT=$PWD/build
-
-    - name: Empaquetar en formato IPA
-      run: |
-        mkdir -p Payload
-        mv build/Release-iphoneos/*.app Payload/
-        zip -r Madeira.ipa Payload
-
-    - name: Subir el archivo final
-      uses: actions/upload-artifact@v4
-      with:
-        name: Madeira-App
-        path: Madeira.ipa
+        # Buscamos el archivo .cab dinámicamente y lo extraemos
+        CAB_FILE=$(find /tmp/vcredist -name "*.cab" | head -n 1)
+        echo "Archivo CAB encontrado en: $CAB_FILE"
+        7zz x "$CAB_FILE" -oapp/Madeira/x86_64-vcruntime
