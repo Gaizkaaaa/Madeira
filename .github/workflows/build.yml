@@ -1,3 +1,4 @@
+```yaml
 name: Build Madeira IPA
 
 on:
@@ -5,59 +6,205 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    name: Build Madeira
+    runs-on: macos-14
 
     steps:
-    - name: Descargar el código (incluyendo submódulos)
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout Madeira + submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
-    - name: Descargar archivos de Visual C++
-      run: |
-        brew install sevenzip
-        curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
-        # 1. Extraer el instalador principal
-        7zz x vc_redist.x64.exe -o/tmp/vcredist
-        # 2. Extraer el contenedor interno que guarda realmente los archivos CAB
-        7zz x /tmp/vcredist/AttachedContainer -o/tmp/vcredist_container
-        # 3. Buscar el archivo CAB en el contenedor y extraer las DLL
-        CAB_FILE=$(find /tmp/vcredist_container -type f -name "*.cab" | head -n 1)
-        if [ -z "$CAB_FILE" ]; then
-          echo "Error: No se encontró ningún archivo .cab en el contenedor"
-          exit 1
-        fi
-        echo "Archivo CAB encontrado en: $CAB_FILE"
-        7zz x "$CAB_FILE" -oapp/Madeira/x86_64-vcruntime
-    - name: Compilar dependencias nativas
-      run: |
-        for dir in build/*/; do
-          if [ -f "${dir}build.sh" ]; then
-            echo "Compilando dependencias en $dir..."
-            (cd "$dir" && bash build.sh)
+      - name: Show toolchain
+        run: |
+          echo "macOS:"
+          sw_vers
+
+          echo "Xcode:"
+          xcodebuild -version
+
+          echo "SDK:"
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build tools
+        run: |
+          brew update
+          brew install sevenzip
+
+      - name: Download Visual C++ runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-all-errors \
+            -o vc_redist.x64.exe \
+            https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+          mkdir -p /tmp/vcredist
+          mkdir -p /tmp/vcredist_container
+          mkdir -p app/Madeira/x86_64-vcruntime
+
+          echo "Extracting Visual C++ installer..."
+          7zz x vc_redist.x64.exe \
+            -o/tmp/vcredist \
+            -y
+
+          if [ ! -f /tmp/vcredist/AttachedContainer ]; then
+            echo "ERROR: AttachedContainer was not found."
+            find /tmp/vcredist -maxdepth 2 -type f -print
+            exit 1
           fi
-        done
 
-    - name: Compilar la aplicación de iOS
-      run: |
-        xcodebuild build \
-          -project app/Madeira.xcodeproj \
-          -scheme Madeira \
-          -configuration Release \
-          -sdk iphoneos \
-          CODE_SIGNING_ALLOWED=NO \
-          DSTROOT=$PWD/build \
-          OBJROOT=$PWD/build \
-          SYMROOT=$PWD/build
+          echo "Extracting AttachedContainer..."
+          7zz x /tmp/vcredist/AttachedContainer \
+            -o/tmp/vcredist_container \
+            -y
 
-    - name: Empaquetar en formato IPA
-      run: |
-        mkdir -p Payload
-        mv build/Release-iphoneos/*.app Payload/
-        zip -r Madeira.ipa Payload
+          echo "Searching for CAB..."
+          CAB_FILE="$(find /tmp/vcredist_container \
+            -type f \
+            -iname "*.cab" \
+            | head -n 1)"
 
-    - name: Subir el archivo final
-      uses: actions/upload-artifact@v4
-      with:
-        name: Madeira-App
-        path: Madeira.ipa
+          if [ -z "$CAB_FILE" ]; then
+            echo "ERROR: No CAB file found."
+            find /tmp/vcredist_container -type f -print
+            exit 1
+          fi
+
+          echo "CAB found:"
+          echo "$CAB_FILE"
+
+          echo "Extracting runtime..."
+          7zz x "$CAB_FILE" \
+            -oapp/Madeira/x86_64-vcruntime \
+            -y
+
+          echo "VC++ runtime contents:"
+          find app/Madeira/x86_64-vcruntime \
+            -type f \
+            -maxdepth 2 \
+            -print
+
+      - name: Build native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+
+          found=0
+
+          for dir in build/*/; do
+            if [ -f "${dir}build.sh" ]; then
+              found=1
+
+              echo "========================================"
+              echo "Building: $dir"
+              echo "========================================"
+
+              (
+                cd "$dir"
+                chmod +x build.sh
+                ./build.sh
+              )
+            fi
+          done
+
+          if [ "$found" -eq 0 ]; then
+            echo "ERROR: No native dependency build.sh files found."
+            exit 1
+          fi
+
+      - name: Build Madeira
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p build
+
+          echo "Available schemes:"
+          xcodebuild \
+            -project app/Madeira.xcodeproj \
+            -list
+
+          echo "Building iOS application..."
+
+          xcodebuild \
+            -project app/Madeira.xcodeproj \
+            -scheme Madeira \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Release-iphoneos" \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            build
+
+      - name: Verify application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="$(find build/Release-iphoneos \
+            -maxdepth 1 \
+            -type d \
+            -name "*.app" \
+            | head -n 1)"
+
+          if [ -z "$APP" ]; then
+            echo "ERROR: Madeira.app was not generated."
+            echo "Build directory:"
+            find build -maxdepth 4 -print
+            exit 1
+          fi
+
+          echo "Application found:"
+          echo "$APP"
+
+          echo "Application contents:"
+          du -sh "$APP"
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf Payload Madeira.ipa
+          mkdir -p Payload
+
+          APP="$(find build/Release-iphoneos \
+            -maxdepth 1 \
+            -type d \
+            -name "*.app" \
+            | head -n 1)"
+
+          if [ -z "$APP" ]; then
+            echo "ERROR: No .app found."
+            exit 1
+          fi
+
+          cp -R "$APP" Payload/
+
+          echo "Creating IPA..."
+          ditto -c -k --sequesterRsrc --keepParent \
+            Payload \
+            Madeira.ipa
+
+          echo "IPA created:"
+          ls -lh Madeira.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-App
+          path: Madeira.ipa
+          if-no-files-found: error
+          retention-days: 7
+```
