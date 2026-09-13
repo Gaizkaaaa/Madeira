@@ -34,7 +34,7 @@ jobs:
           # Buscamos el archivo .cab dinámicamente y lo extraemos
           CAB_FILE=$(find /tmp/vcredist -name "*.cab" | head -n 1)
           echo "Archivo CAB encontrado en: $CAB_FILE"
-          7zz x "$CAB_FILE" -oapp/Madeira/x86_64-vcruntime
+          7zz x "$CAB_FILE" -oapp/Madeira/x86_64-vcruntime -y
 
       - name: Build native dependencies
         shell: bash
